@@ -2,15 +2,38 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#0E0E0F" />
 <title>Захват мира</title>
 <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
 <div class="app">
+  <main class="main">
+    <div class="topbar">
+      <span class="title" id="mapTitle">Профиль не выбран</span>
+      <div class="zoom">
+        <button class="btn sm" id="zoomOut" aria-label="Уменьшить">−</button>
+        <button class="btn sm" id="zoomIn" aria-label="Увеличить">+</button>
+        <button class="btn sm" id="zoomFit">Вся карта</button>
+        <button class="btn sm" id="zoomHome">К себе</button>
+      </div>
+    </div>
+    <div class="mapwrap">
+      <canvas id="map"></canvas>
+      <div class="hud left" id="hint">Клик по стране — выбрать цель · перетаскивание — двигать карту · колесо или щипок — масштаб</div>
+      <div class="hud right">
+        <div><span class="swatch" id="legendMine" style="background:#5E9FE8"></span> моя держава</div>
+        <div><span class="swatch" style="background:#DE9255"></span> цель наступления</div>
+        <div><span class="swatch" style="background:rgba(255,255,255,.42)"></span> родная страна</div>
+        <div><span class="swatch" style="background:#3A4048"></span> не захвачено</div>
+      </div>
+    </div>
+  </main>
+
   <aside class="side">
     <div class="crest">
-      <div class="sigil" id="crestSigil">🚩</div>
+      <canvas class="flagmini" id="crestFlag" width="112" height="70" aria-label="Флаг державы"></canvas>
       <div class="who">
         <b id="crestName">Захват мира</b>
         <span id="crestSub">клетка за выполненную задачу</span>
@@ -44,7 +67,7 @@
           <span class="eyebrow">Направление наступления</span>
           <div class="card">
             <select id="targetSel" aria-label="С какой страной воевать"></select>
-            <p class="fnote" id="targetNote">Можно просто кликнуть по стране на карте.</p>
+            <p class="fnote" id="targetNote">Можно просто нажать на страну на карте.</p>
           </div>
         </div>
       </section>
@@ -54,7 +77,7 @@
         <div class="tasks" id="taskList"></div>
         <div class="addtask">
           <input type="text" id="newTaskName" placeholder="Название задачи" maxlength="40" />
-          <input type="number" id="newTaskReward" value="1" min="1" max="20" aria-label="Клеток за выполнение" />
+          <input type="number" id="newTaskReward" value="1" min="1" max="20" inputmode="numeric" aria-label="Клеток за выполнение" />
           <button class="btn sm" id="addTaskBtn">Добавить задачу</button>
         </div>
       </section>
@@ -71,46 +94,34 @@
       </section>
     </div>
   </aside>
-
-  <main class="main">
-    <div class="topbar">
-      <span class="title" id="mapTitle">Профиль не выбран</span>
-      <div class="zoom">
-        <button class="btn sm" id="zoomOut" aria-label="Уменьшить">−</button>
-        <button class="btn sm" id="zoomIn" aria-label="Увеличить">+</button>
-        <button class="btn sm" id="zoomFit">Вся карта</button>
-        <button class="btn sm" id="zoomHome">К себе</button>
-      </div>
-    </div>
-    <div class="mapwrap">
-      <canvas id="map"></canvas>
-      <div class="hud left" id="hint">Клик по стране — выбрать цель · перетаскивание — двигать карту · колесо — масштаб</div>
-      <div class="hud right">
-        <div><span class="swatch" id="legendMine" style="background:#5E9FE8"></span> моя держава</div>
-        <div><span class="swatch" style="background:#DE9255"></span> цель наступления</div>
-        <div><span class="swatch" style="background:rgba(255,255,255,.42)"></span> родная страна</div>
-        <div><span class="swatch" style="background:#3A4048"></span> не захвачено</div>
-      </div>
-    </div>
-  </main>
 </div>
 
-<div class="modal" id="modal">
+<div class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="newGameTitle">
   <div class="sheet">
-    <h2>Новая игра</h2>
-    <p class="sub">Создай свою державу: название, герб, цвет, размер клеток и страна старта. Прогресс сохраняется в браузере.</p>
+    <h2 id="newGameTitle">Новая игра</h2>
+    <p class="sub">Создай свою державу: название, флаг, размер клеток и страну старта. Прогресс сохраняется в браузере.</p>
     <div class="field">
       <label class="label" for="gState">Название державы</label>
       <input type="text" id="gState" placeholder="Например: Империя Алон" maxlength="28" />
     </div>
+
     <div class="field">
-      <span class="label">Герб</span>
+      <span class="label">Флаг державы</span>
+      <div class="flagbox">
+        <canvas class="flagprev" id="gFlagPrev" width="336" height="210" aria-label="Предпросмотр флага"></canvas>
+      </div>
+      <span class="sublabel">Рисунок флага</span>
+      <div class="picker patterns" id="gPattern"></div>
+      <span class="sublabel">Основной цвет — им закрашивается захваченная территория</span>
+      <div class="picker colors" id="gColor1"></div>
+      <span class="sublabel">Второй цвет</span>
+      <div class="picker colors" id="gColor2"></div>
+      <span class="sublabel">Третий цвет</span>
+      <div class="picker colors" id="gColor3"></div>
+      <span class="sublabel">Эмблема на флаге</span>
       <div class="picker" id="gEmblem"></div>
     </div>
-    <div class="field">
-      <span class="label">Цвет державы</span>
-      <div class="picker colors" id="gColor"></div>
-    </div>
+
     <div class="field">
       <label class="label" for="gSize">Размер клеток</label>
       <select id="gSize">
@@ -133,22 +144,32 @@
   </div>
 </div>
 
-<div class="modal" id="stateModal">
+<div class="modal" id="stateModal" role="dialog" aria-modal="true" aria-labelledby="stateTitle">
   <div class="sheet">
-    <h2>Моя держава</h2>
-    <p class="sub">Название, герб и цвет меняются в любой момент — карта перекрасится сразу.</p>
+    <h2 id="stateTitle">Моя держава</h2>
+    <p class="sub">Название и флаг можно менять в любой момент — карта перекрасится сразу.</p>
     <div class="field">
       <label class="label" for="sState">Название державы</label>
       <input type="text" id="sState" maxlength="28" />
     </div>
+
     <div class="field">
-      <span class="label">Герб</span>
+      <span class="label">Флаг державы</span>
+      <div class="flagbox">
+        <canvas class="flagprev" id="sFlagPrev" width="336" height="210" aria-label="Предпросмотр флага"></canvas>
+      </div>
+      <span class="sublabel">Рисунок флага</span>
+      <div class="picker patterns" id="sPattern"></div>
+      <span class="sublabel">Основной цвет — им закрашивается захваченная территория</span>
+      <div class="picker colors" id="sColor1"></div>
+      <span class="sublabel">Второй цвет</span>
+      <div class="picker colors" id="sColor2"></div>
+      <span class="sublabel">Третий цвет</span>
+      <div class="picker colors" id="sColor3"></div>
+      <span class="sublabel">Эмблема на флаге</span>
       <div class="picker" id="sEmblem"></div>
     </div>
-    <div class="field">
-      <span class="label">Цвет державы</span>
-      <div class="picker colors" id="sColor"></div>
-    </div>
+
     <div class="actions">
       <button class="btn ghost" id="cancelState">Отмена</button>
       <button class="btn primary" id="saveState">Сохранить</button>
