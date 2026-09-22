@@ -18,12 +18,44 @@ const $ = (id) => document.getElementById(id);
 function hex2rgb(h){ return [parseInt(h.slice(1,3),16), parseInt(h.slice(3,5),16), parseInt(h.slice(5,7),16)]; }
 function rgb2hex(c){ return "#" + c.map(v=>Math.max(0,Math.min(255,Math.round(v))).toString(16).padStart(2,"0")).join(""); }
 function mix(a,b,t){ const A=hex2rgb(a), B=hex2rgb(b); return rgb2hex([0,1,2].map(i=>A[i]+(B[i]-A[i])*t)); }
+function luminance(hex){
+  const [r,g,b] = hex2rgb(hex).map(v=>{ const c=v/255; return c<=0.03928 ? c/12.92 : Math.pow((c+0.055)/1.055, 2.4); });
+  return 0.2126*r + 0.7152*g + 0.0722*b;
+}
+function textOn(hex){ return luminance(hex) > 0.42 ? "#0E1116" : "#FFFFFF"; }
+function uiAccent(hex){
+  let c = hex, i = 0;
+  while(luminance(c) < 0.09 && i++ < 10) c = mix(c, "#FFFFFF", 0.16);
+  return c;
+}
 function countryColor(i){ return mix(PALETTE[(i*3)%PALETTE.length], "#13171D", 0.74); }
 function nowStr(){ const d=new Date(); return d.toLocaleDateString("ru-RU",{day:"2-digit",month:"short"})+" "+d.toLocaleTimeString("ru-RU",{hour:"2-digit",minute:"2-digit"}); }
 function uid(){ return Math.random().toString(36).slice(2,10); }
 function plural(n,a,b,c){ const m=n%100, k=n%10; return n+" "+(m>=11&&m<=14?c:k===1?a:k>=2&&k<=4?b:c); }
 function escapeHtml(s){ return String(s).replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
 function clone(o){ return JSON.parse(JSON.stringify(o)); }
+
+/* ---------- контрастность интерфейса ---------- */
+function injectContrastStyles(){
+  if(document.getElementById("contrastFix")) return;
+  const st = document.createElement("style");
+  st.id = "contrastFix";
+  st.textContent = `
+  .btn.primary, button.primary {
+    background: var(--accent) !important;
+    color: var(--accent-text, #0E1116) !important;
+    border-color: transparent !important;
+    font-weight: 650 !important;
+    text-shadow: none !important;
+  }
+  .btn.primary:disabled, button.primary:disabled { opacity: .55 !important; }
+  .tabs button[aria-selected="true"] { color: var(--text) !important; }
+  .picker button[aria-pressed="true"] { outline: 2px solid var(--accent) !important; outline-offset: 1px; }
+  .picker.colors button { box-shadow: inset 0 0 0 1px rgba(255,255,255,.22); }
+  a, .link { color: var(--accent); }
+  `;
+  document.head.appendChild(st);
+}
 
 /* ---------- storage ---------- */
 let db = { profiles: [], current: null };
@@ -42,7 +74,7 @@ function normalizeProfile(p){
   p.id = p.id || uid();
   p.name = typeof p.name === "string" && p.name.trim() ? p.name : "Моя держава";
   if(typeof p.country !== "number" || p.country < 0 || p.country >= COUNTRIES.length) p.country = 0;
-  if(!GRID_DATA[String(p.deg)]) p.deg = 2;
+  if(!hasGridSize(p.deg)) p.deg = 2;
   p.deg = +p.deg;
   p.flag = normalizeFlag(p.flag, typeof p.color === "string" ? p.color : null, p.emblem);
   p.color = p.flag.colors[0];
@@ -150,11 +182,12 @@ function flagColor(prof){ return prof ? normalizeFlag(prof.flag).colors[0] : "#5
 
 /* ---------- grid ---------- */
 const gridCache = {};
-function decodeGrid(deg){
-  const k = String(deg);
-  if (gridCache[k]) return gridCache[k];
-  const src = GRID_DATA[k];
-  if(!src) return null;
+const rawCache = {};
+/* размеры, которых нет в worlddata.js — строятся из базовой сетки */
+const DERIVED_SIZES = { "0.5": "1" };
+function hasGridSize(k){ return !!(GRID_DATA[String(k)] || DERIVED_SIZES[String(k)]); }
+
+function decodeRLE(src){
   const cells = new Int16Array(src.cols*src.rows);
   let p = 0;
   for (const part of src.rle.split(";")){
@@ -163,6 +196,64 @@ function decodeGrid(deg){
     const v = parseInt(part.slice(0,c),10), n = parseInt(part.slice(c+1),10);
     cells.fill(v, p, p+n); p += n;
   }
+  let land = 0;
+  for(let i=0;i<cells.length;i++) if(cells[i]>=0) land++;
+  return { cols: src.cols, rows: src.rows, land, cells };
+}
+
+/* уплотнение сетки: каждая клетка делится на 4, углы сглаживаются по соседям */
+function refineGrid(src){
+  const cols = src.cols*2, rows = src.rows*2;
+  const cells = new Int16Array(cols*rows);
+  const sc = src.cells, scols = src.cols, srows = src.rows;
+  const at = (x,y) => sc[y*scols + ((x%scols)+scols)%scols];
+  let land = 0;
+  for(let y=0;y<srows;y++){
+    for(let x=0;x<scols;x++){
+      const v = at(x,y);
+      for(let qy=0;qy<2;qy++){
+        const ny = qy ? y+1 : y-1;
+        const okY = ny>=0 && ny<srows;
+        for(let qx=0;qx<2;qx++){
+          const nx = qx ? x+1 : x-1;
+          let val = v;
+          if(okY){
+            const b = at(nx, y), c = at(x, ny), d = at(nx, ny);
+            if(b===c && c===d && b!==v) val = b;
+          }
+          cells[(y*2+qy)*cols + (x*2+qx)] = val;
+          if(val>=0) land++;
+        }
+      }
+    }
+  }
+  return { cols, rows, land, cells };
+}
+
+function rawGrid(k){
+  k = String(k);
+  if(rawCache[k]) return rawCache[k];
+  let out = null;
+  if(GRID_DATA[k]) out = decodeRLE(GRID_DATA[k]);
+  else if(DERIVED_SIZES[k]){
+    const base = rawGrid(DERIVED_SIZES[k]);
+    if(base) out = refineGrid(base);
+  }
+  if(!out) return null;
+  rawCache[k] = out;
+  return out;
+}
+function gridLand(k){
+  const g = rawGrid(k);
+  return g ? g.land : 0;
+}
+
+function decodeGrid(deg){
+  const k = String(deg);
+  if (gridCache[k]) return gridCache[k];
+  const src = rawGrid(k);
+  if(!src) return null;
+  const cells = src.cells;
   const n = COUNTRIES.length;
   const counts = new Int32Array(n), sx = new Float64Array(n), sy = new Float64Array(n);
   for(let y=0;y<src.rows;y++) for(let x=0;x<src.cols;x++){
@@ -195,6 +286,13 @@ function resetRuntime(){
   P.sumX = 0; P.sumY = 0;
   hoverCountry = -1;
 }
+function applyAccent(rawColor){
+  const color = uiAccent(rawColor);
+  document.documentElement.style.setProperty("--accent", color);
+  document.documentElement.style.setProperty("--accent-text", textOn(color));
+  document.documentElement.style.setProperty("--accent-soft", mix(color, "#101012", 0.82));
+  const lm = $("legendMine"); if(lm) lm.style.background = rawColor;
+}
 function activate(prof){
   if(!prof){ resetRuntime(); return; }
   const grid = decodeGrid(prof.deg);
@@ -213,10 +311,7 @@ function activate(prof){
   rebuildFrontier();
   if(prof.target != null && (grid.counts[prof.target] === 0 || P.byCountry[prof.target] >= grid.counts[prof.target])) prof.target = null;
   if(prof.start == null && P.owned.size) prof.start = [...P.owned][0];
-  const color = flagColor(prof);
-  document.documentElement.style.setProperty("--accent", color);
-  document.documentElement.style.setProperty("--accent-soft", mix(color, "#101012", 0.82));
-  const lm = $("legendMine"); if(lm) lm.style.background = color;
+  applyAccent(flagColor(prof));
 }
 function rebuildFrontier(){
   P.front = new Set();
@@ -540,6 +635,16 @@ function centerOn(cellIndex, scale){
   view.oy = H/2 - (y+0.5)*view.s;
 }
 
+function cellColor(i, v, mine, target, home){
+  let color;
+  if(P.owned.has(i)) color = mine;
+  else if(v===target) color = mix(TARGET_COLOR, "#13171D", 0.42);
+  else if(v===home) color = mix(countryColor(v), "#FFFFFF", 0.26);
+  else color = countryColor(v);
+  if(v===hoverCountry && hoverCountry>=0 && !P.owned.has(i)) color = mix(color, "#FFFFFF", 0.10);
+  return color;
+}
+
 function draw(){
   if(!ctx) return;
   const grad=ctx.createLinearGradient(0,0,0,H);
@@ -564,20 +669,33 @@ function draw(){
   const x0=Math.max(0, Math.floor((-view.ox)/s)-1), x1=Math.min(g.cols, Math.ceil((W-view.ox)/s)+1);
   const y0=Math.max(0, Math.floor((-view.oy)/s)-1), y1=Math.min(g.rows, Math.ceil((H-view.oy)/s)+1);
 
-  for(let y=y0;y<y1;y++){
-    for(let x=x0;x<x1;x++){
-      const i=y*g.cols+x, v=g.cells[i];
-      if(v<0) continue;
-      let color;
-      if(P.owned.has(i)) color = mine;
-      else if(v===target) color = mix(TARGET_COLOR, "#13171D", 0.42);
-      else if(v===home) color = mix(countryColor(v), "#FFFFFF", 0.26);
-      else color = countryColor(v);
-      ctx.fillStyle = color;
-      ctx.fillRect(view.ox+x*s, view.oy+y*s, s-gap, s-gap);
-      if(v===hoverCountry && hoverCountry>=0 && !P.owned.has(i)){
-        ctx.fillStyle="rgba(255,255,255,.10)";
+  if(gap > 0){
+    for(let y=y0;y<y1;y++){
+      for(let x=x0;x<x1;x++){
+        const i=y*g.cols+x, v=g.cells[i];
+        if(v<0) continue;
+        ctx.fillStyle = cellColor(i, v, mine, target, home);
         ctx.fillRect(view.ox+x*s, view.oy+y*s, s-gap, s-gap);
+      }
+    }
+  } else {
+    // мелкий масштаб: склеиваем одинаковые клетки в строки — быстрее на больших сетках
+    for(let y=y0;y<y1;y++){
+      let runStart=-1, runColor=null;
+      for(let x=x0;x<x1;x++){
+        const i=y*g.cols+x, v=g.cells[i];
+        const color = v<0 ? null : cellColor(i, v, mine, target, home);
+        if(color !== runColor){
+          if(runColor !== null && runStart >= 0){
+            ctx.fillStyle = runColor;
+            ctx.fillRect(view.ox+runStart*s, view.oy+y*s, (x-runStart)*s, s);
+          }
+          runColor = color; runStart = color === null ? -1 : x;
+        }
+      }
+      if(runColor !== null && runStart >= 0){
+        ctx.fillStyle = runColor;
+        ctx.fillRect(view.ox+runStart*s, view.oy+y*s, (x1-runStart)*s, s);
       }
     }
   }
@@ -809,9 +927,26 @@ function fillCountrySelect(){
   const ru=COUNTRIES.findIndex(c=>c.name==="Россия");
   sel.value=String(ru>=0?ru:0);
 }
+/* добавляем самый подробный размер карты */
+function addDetailedSizeOption(){
+  const sel=$("gSize");
+  if(!sel) return;
+  if([...sel.options].some(o=>o.value==="0.5")) return;
+  const o=document.createElement("option");
+  o.value="0.5";
+  o.textContent="0.5° — максимум деталей, клеток в 4 раза больше";
+  sel.appendChild(o);
+}
 function updateSizeInfo(){
-  const deg=$("gSize").value, g=GRID_DATA[deg];
-  $("sizeInfo").textContent = g ? `${g.land} клеток суши — столько задач нужно выполнить для полного захвата мира.` : "";
+  const deg=$("gSize").value;
+  const info=$("sizeInfo");
+  if(!info) return;
+  info.textContent="Считаю клетки…";
+  setTimeout(()=>{
+    if($("gSize").value !== deg) return;
+    const land=gridLand(deg);
+    info.textContent = land ? `${land} клеток суши — столько задач нужно выполнить для полного захвата мира.` : "";
+  }, 30);
 }
 function openNewGame(){
   newGame = { flag: clone(DEFAULT_FLAG) };
@@ -890,9 +1025,12 @@ $("zoomHome").onclick=()=>{ if(P.prof && P.prof.start!=null){ centerOn(P.prof.st
 $("targetSel").onchange=e=>setTarget(e.target.value==="" ? null : +e.target.value);
 
 /* ---------- boot ---------- */
+injectContrastStyles();
+applyAccent(DEFAULT_FLAG.colors[0]);
 resetRuntime();
 load();
 fillCountrySelect();
+addDetailedSizeOption();
 
 let resizeTimer=null;
 function onResize(){
