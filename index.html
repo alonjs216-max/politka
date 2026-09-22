@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Захват мира</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="crest">
+      <div class="sigil" id="crestSigil">🚩</div>
+      <div class="who">
+        <b id="crestName">Захват мира</b>
+        <span id="crestSub">клетка за выполненную задачу</span>
+      </div>
+      <button class="edit" id="editStateBtn" title="Настроить державу" aria-label="Настроить державу"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>
+    </div>
+
+    <div class="tabs" role="tablist">
+      <button role="tab" data-tab="overview" aria-selected="true">Обзор</button>
+      <button role="tab" data-tab="tasks" aria-selected="false">Задачи</button>
+      <button role="tab" data-tab="log" aria-selected="false">Журнал</button>
+      <button role="tab" data-tab="games" aria-selected="false">Игры</button>
+    </div>
+
+    <div class="panes">
+      <section class="pane on" id="pane-overview">
+        <div class="block card hero">
+          <div class="top">
+            <b id="pct">0%</b>
+            <small id="cells">0 / 0 клеток</small>
+          </div>
+          <div class="bar"><i id="barFill"></i></div>
+          <div class="grid2">
+            <div class="tile"><span>Стран захвачено</span><b id="statCountries">0</b></div>
+            <div class="tile"><span>Задач выполнено</span><b id="statDone">0</b></div>
+          </div>
+          <p id="winMsg" class="win" style="display:none">Мир захвачен полностью. Поздравляю!</p>
+        </div>
+
+        <div class="block">
+          <span class="eyebrow">Направление наступления</span>
+          <div class="card">
+            <select id="targetSel" aria-label="С какой страной воевать"></select>
+            <p class="fnote" id="targetNote">Можно просто кликнуть по стране на карте.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="pane" id="pane-tasks">
+        <span class="eyebrow">Мои задачи</span>
+        <div class="tasks" id="taskList"></div>
+        <div class="addtask">
+          <input type="text" id="newTaskName" placeholder="Название задачи" maxlength="40" />
+          <input type="number" id="newTaskReward" value="1" min="1" max="20" aria-label="Клеток за выполнение" />
+          <button class="btn sm" id="addTaskBtn">Добавить задачу</button>
+        </div>
+      </section>
+
+      <section class="pane" id="pane-log">
+        <span class="eyebrow">Хроника похода</span>
+        <ul class="log" id="log"></ul>
+      </section>
+
+      <section class="pane" id="pane-games">
+        <span class="eyebrow">Профили игр</span>
+        <div class="profiles" id="profileList"></div>
+        <button class="btn primary wide" id="newGameBtn" style="margin-top:14px">Новая игра</button>
+      </section>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="topbar">
+      <span class="title" id="mapTitle">Профиль не выбран</span>
+      <div class="zoom">
+        <button class="btn sm" id="zoomOut" aria-label="Уменьшить">−</button>
+        <button class="btn sm" id="zoomIn" aria-label="Увеличить">+</button>
+        <button class="btn sm" id="zoomFit">Вся карта</button>
+        <button class="btn sm" id="zoomHome">К себе</button>
+      </div>
+    </div>
+    <div class="mapwrap">
+      <canvas id="map"></canvas>
+      <div class="hud left" id="hint">Клик по стране — выбрать цель · перетаскивание — двигать карту · колесо — масштаб</div>
+      <div class="hud right">
+        <div><span class="swatch" id="legendMine" style="background:#5E9FE8"></span> моя держава</div>
+        <div><span class="swatch" style="background:#DE9255"></span> цель наступления</div>
+        <div><span class="swatch" style="background:rgba(255,255,255,.42)"></span> родная страна</div>
+        <div><span class="swatch" style="background:#3A4048"></span> не захвачено</div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div class="modal" id="modal">
+  <div class="sheet">
+    <h2>Новая игра</h2>
+    <p class="sub">Создай свою державу: название, герб, цвет, размер клеток и страна старта. Прогресс сохраняется в браузере.</p>
+    <div class="field">
+      <label class="label" for="gState">Название державы</label>
+      <input type="text" id="gState" placeholder="Например: Империя Алон" maxlength="28" />
+    </div>
+    <div class="field">
+      <span class="label">Герб</span>
+      <div class="picker" id="gEmblem"></div>
+    </div>
+    <div class="field">
+      <span class="label">Цвет державы</span>
+      <div class="picker colors" id="gColor"></div>
+    </div>
+    <div class="field">
+      <label class="label" for="gSize">Размер клеток</label>
+      <select id="gSize">
+        <option value="5">Очень крупные — быстрая игра</option>
+        <option value="3">Крупные</option>
+        <option value="2" selected>Средние</option>
+        <option value="1.5">Мелкие</option>
+        <option value="1">Очень мелкие — долгая игра</option>
+      </select>
+      <p class="hintline" id="sizeInfo"></p>
+    </div>
+    <div class="field">
+      <label class="label" for="gCountry">Страна старта</label>
+      <select id="gCountry"></select>
+    </div>
+    <div class="actions">
+      <button class="btn ghost" id="cancelGame">Отмена</button>
+      <button class="btn primary" id="startGame">Начать</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="stateModal">
+  <div class="sheet">
+    <h2>Моя держава</h2>
+    <p class="sub">Название, герб и цвет меняются в любой момент — карта перекрасится сразу.</p>
+    <div class="field">
+      <label class="label" for="sState">Название державы</label>
+      <input type="text" id="sState" maxlength="28" />
+    </div>
+    <div class="field">
+      <span class="label">Герб</span>
+      <div class="picker" id="sEmblem"></div>
+    </div>
+    <div class="field">
+      <span class="label">Цвет державы</span>
+      <div class="picker colors" id="sColor"></div>
+    </div>
+    <div class="actions">
+      <button class="btn ghost" id="cancelState">Отмена</button>
+      <button class="btn primary" id="saveState">Сохранить</button>
+    </div>
+  </div>
+</div>
+
+<script src="worlddata.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
